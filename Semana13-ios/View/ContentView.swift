@@ -1,109 +1,73 @@
 import SwiftUI
 
 struct ContentView: View {
-
-    @StateObject private var viewModel = UserViewModel()
-    @State private var showingForm = false
-    @State private var editingUser: User?
-    @State private var newName = ""
-    @State private var newEmail = ""
+    @StateObject private var viewModel = ChatViewModel()
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                TextField("Buscar usuario por nombre", text: $viewModel.searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .padding()
-
-                List(viewModel.filteredUsers) { user in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(user.name)
-                            .font(.headline)
-                        Text(user.email)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            Task {
-                                await viewModel.deleteUser(id: user.id)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(viewModel.messages) { message in
+                                HStack {
+                                    if message.role == .assistant {
+                                        bubble(message)
+                                        Spacer(minLength: 40)
+                                    } else {
+                                        Spacer(minLength: 40)
+                                        bubble(message)
+                                    }
+                                }
+                                .id(message.id)
                             }
-                        } label: {
-                            Label("Eliminar", systemImage: "trash")
                         }
-
-                        Button {
-                            editingUser = user
-                            newName = user.name
-                            newEmail = user.email
-                            showingForm = true
-                        } label: {
-                            Label("Editar", systemImage: "pencil")
+                        .padding()
+                    }
+                    .onChange(of: viewModel.messages.count) { _ in
+                        if let last = viewModel.messages.last {
+                            withAnimation {
+                                proxy.scrollTo(last.id, anchor: .bottom)
+                            }
                         }
-                        .tint(.blue)
                     }
                 }
-                .listStyle(.plain)
 
-                Button {
-                    editingUser = nil
-                    newName = ""
-                    newEmail = ""
-                    showingForm = true
-                } label: {
-                    Label("Agregar Usuario", systemImage: "plus")
+                Divider()
+
+                HStack(spacing: 12) {
+                    TextField("Escribe un mensaje...", text: $viewModel.userInput)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(viewModel.isLoading)
+
+                    if viewModel.isLoading {
+                        ProgressView()
+                    } else {
+                        Button {
+                            Task {
+                                await viewModel.sendMessage()
+                            }
+                        } label: {
+                            Image(systemName: "paperplane.fill")
+                                .font(.system(size: 20))
+                        }
+                        .disabled(viewModel.userInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
                 }
                 .padding()
             }
-            .navigationTitle("Usuarios")
-            .onAppear {
-                Task {
-                    await viewModel.fetchUsers()
-                }
-            }
-            .sheet(isPresented: $showingForm) {
-                NavigationStack {
-                    Form {
-                        Section {
-                            TextField("Nombre", text: $newName)
-                            TextField("Email", text: $newEmail)
-                                .keyboardType(.emailAddress)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                        }
-                    }
-                    .navigationTitle(editingUser == nil ? "Nuevo Usuario" : "Editar Usuario")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancelar") {
-                                showingForm = false
-                            }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Guardar") {
-                                let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                let trimmedEmail = newEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                                guard !trimmedName.isEmpty else { return }
-
-                                showingForm = false
-
-                                if let user = editingUser {
-                                    let updated = User(id: user.id, name: trimmedName, email: trimmedEmail)
-                                    Task {
-                                        await viewModel.updateUser(user: updated)
-                                    }
-                                } else {
-                                    Task {
-                                        await viewModel.createUser(name: trimmedName, email: trimmedEmail)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            .navigationTitle("TD GPT")
         }
+    }
+
+    @ViewBuilder
+    private func bubble(_ message: ChatLine) -> some View {
+        Text(message.content)
+            .padding(12)
+            .background(message.role == .user ? Color.blue : Color.gray.opacity(0.15))
+            .foregroundStyle(message.role == .user ? .white : .primary)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .frame(maxWidth: 280, alignment: message.role == .user ? .trailing : .leading)
     }
 }
 
