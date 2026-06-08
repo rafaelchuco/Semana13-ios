@@ -1,8 +1,8 @@
 import Combine
 import Foundation
-import SwiftUI
 
-class UserViewModel: ObservableObject {
+@MainActor
+final class UserViewModel: ObservableObject {
 
     @Published var users: [User] = []
     @Published var searchText: String = ""
@@ -17,62 +17,71 @@ class UserViewModel: ObservableObject {
         }
     }
 
-    func fetchUsers() {
-        guard let url = URL(string: "https://jsonplaceholder.typicode.com/users") else {
-            print("URL inválida")
-            return
+    // GET: Obtener todos los usuarios
+    func fetchUsers() async {
+        guard let url = URL(string: "https://jsonplaceholder.typicode.com/users") else { return }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let decodedUsers = try JSONDecoder().decode([User].self, from: data)
+            users = decodedUsers
+        } catch {
+            print("Error fetching users: \(error)")
         }
+    }
 
-        URLSession.shared.dataTask(with: url) { data, response, error in
+    // POST: Crear un nuevo usuario
+    func createUser(name: String, email: String) async {
+        guard let url = URL(string: "https://jsonplaceholder.typicode.com/users") else { return }
 
-            if let data = data {
-                do {
-                    let decodedUsers = try JSONDecoder().decode([User].self, from: data)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-                    DispatchQueue.main.async {
-                        self.users = decodedUsers
-                    }
-                } catch {
-                    print("Error al decodificar: \(error)")
-                }
-            } else if let error = error {
-                print("Error de red: \(error)")
+        let newUser = User(id: 0, name: name, email: email)
+
+        do {
+            request.httpBody = try JSONEncoder().encode(newUser)
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let createdUser = try JSONDecoder().decode(User.self, from: data)
+            users.append(createdUser)
+        } catch {
+            print("Error creating user: \(error)")
+        }
+    }
+
+    // PUT: Actualizar un usuario existente
+    func updateUser(user: User) async {
+        guard let url = URL(string: "https://jsonplaceholder.typicode.com/users/\(user.id)") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        do {
+            request.httpBody = try JSONEncoder().encode(user)
+            _ = try await URLSession.shared.data(for: request)
+
+            if let index = users.firstIndex(where: { $0.id == user.id }) {
+                users[index] = user
             }
-
-        }.resume()
-    }
-
-    func addUser(name: String) {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
-
-        let newId = (users.map { $0.id }.max() ?? 0) + 1
-        let newUser = User(id: newId, name: trimmedName, email: "")
-        users.append(newUser)
-    }
-
-    func addUser(name: String, email: String) {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
-
-        let newId = (users.map { $0.id }.max() ?? 0) + 1
-        let newUser = User(id: newId, name: trimmedName, email: trimmedEmail)
-        users.append(newUser)
-    }
-
-    func updateUser(user: User, newName: String, newEmail: String) {
-        let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedEmail = newEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
-
-        if let index = users.firstIndex(of: user) {
-            users[index].name = trimmedName
-            users[index].email = trimmedEmail
+        } catch {
+            print("Error updating user: \(error)")
         }
     }
 
-    func deleteUser(_ user: User) {
-        users.removeAll { $0 == user }
+    // DELETE: Eliminar un usuario por id
+    func deleteUser(id: Int) async {
+        guard let url = URL(string: "https://jsonplaceholder.typicode.com/users/\(id)") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+
+        do {
+            _ = try await URLSession.shared.data(for: request)
+            users.removeAll { $0.id == id }
+        } catch {
+            print("Error deleting user: \(error)")
+        }
     }
 }

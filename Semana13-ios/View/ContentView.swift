@@ -9,51 +9,60 @@ struct ContentView: View {
     @State private var newEmail = ""
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: 0) {
-                TextField("Buscar usuario", text: $viewModel.searchText)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                TextField("Buscar usuario por nombre", text: $viewModel.searchText)
+                    .textFieldStyle(.roundedBorder)
                     .padding()
 
-                List {
-                    ForEach(viewModel.filteredUsers) { user in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(user.name)
-                                .font(.headline)
-                            Text(user.email)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
+                List(viewModel.filteredUsers) { user in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(user.name)
+                            .font(.headline)
+                        Text(user.email)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            Task {
+                                await viewModel.deleteUser(id: user.id)
+                            }
+                        } label: {
+                            Label("Eliminar", systemImage: "trash")
                         }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
+
+                        Button {
                             editingUser = user
                             newName = user.name
                             newEmail = user.email
                             showingForm = true
+                        } label: {
+                            Label("Editar", systemImage: "pencil")
                         }
-                    }
-                    .onDelete { indexSet in
-                        for index in indexSet {
-                            let user = viewModel.filteredUsers[index]
-                            viewModel.deleteUser(user)
-                        }
+                        .tint(.blue)
                     }
                 }
+                .listStyle(.plain)
 
-                Button("Agregar Usuario") {
+                Button {
                     editingUser = nil
                     newName = ""
                     newEmail = ""
                     showingForm = true
+                } label: {
+                    Label("Agregar Usuario", systemImage: "plus")
                 }
                 .padding()
             }
             .navigationTitle("Usuarios")
             .onAppear {
-                viewModel.fetchUsers()
+                Task {
+                    await viewModel.fetchUsers()
+                }
             }
             .sheet(isPresented: $showingForm) {
-                NavigationView {
+                NavigationStack {
                     Form {
                         Section {
                             TextField("Nombre", text: $newName)
@@ -72,12 +81,23 @@ struct ContentView: View {
                         }
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Guardar") {
-                                if let user = editingUser {
-                                    viewModel.updateUser(user: user, newName: newName, newEmail: newEmail)
-                                } else {
-                                    viewModel.addUser(name: newName, email: newEmail)
-                                }
+                                let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                let trimmedEmail = newEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                                guard !trimmedName.isEmpty else { return }
+
                                 showingForm = false
+
+                                if let user = editingUser {
+                                    let updated = User(id: user.id, name: trimmedName, email: trimmedEmail)
+                                    Task {
+                                        await viewModel.updateUser(user: updated)
+                                    }
+                                } else {
+                                    Task {
+                                        await viewModel.createUser(name: trimmedName, email: trimmedEmail)
+                                    }
+                                }
                             }
                         }
                     }
